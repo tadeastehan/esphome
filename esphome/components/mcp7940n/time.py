@@ -10,8 +10,8 @@ DEPENDENCIES = ["i2c"]
 
 
 mcp7940n_ns = cg.esphome_ns.namespace("mcp7940n")
-mcp7940nComponent = mcp7940n_ns.class_(
-    "mcp7940nComponent", time.RealTimeClock, i2c.I2CDevice
+MCP7940NComponent = mcp7940n_ns.class_(
+    "MCP7940NComponent", time.RealTimeClock, i2c.I2CDevice
 )
 WriteAction = mcp7940n_ns.class_("WriteAction", automation.Action)
 ReadAction = mcp7940n_ns.class_("ReadAction", automation.Action)
@@ -19,7 +19,7 @@ ReadAction = mcp7940n_ns.class_("ReadAction", automation.Action)
 
 CONFIG_SCHEMA = time.TIME_SCHEMA.extend(
     {
-        cv.GenerateID(): cv.declare_id(mcp7940nComponent),
+        cv.GenerateID(): cv.declare_id(MCP7940NComponent),
     }
 ).extend(i2c.i2c_device_schema(0x6F))
 
@@ -29,7 +29,7 @@ CONFIG_SCHEMA = time.TIME_SCHEMA.extend(
     WriteAction,
     automation.maybe_simple_id(
         {
-            cv.GenerateID(): cv.use_id(mcp7940nComponent),
+            cv.GenerateID(): cv.use_id(MCP7940NComponent),
         }
     ),
 )
@@ -44,7 +44,7 @@ async def mcp7940n_write_time_to_code(config, action_id, template_arg, args):
     ReadAction,
     automation.maybe_simple_id(
         {
-            cv.GenerateID(): cv.use_id(mcp7940nComponent),
+            cv.GenerateID(): cv.use_id(MCP7940NComponent),
         }
     ),
 )
