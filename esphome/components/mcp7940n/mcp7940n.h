@@ -11,17 +11,35 @@ class MCP7940NComponent : public time::RealTimeClock, public i2c::I2CDevice {
  public:
   void setup() override;
   void update() override;
+  void loop() override;
   void dump_config() override;
   float get_setup_priority() const override;
   void read_time();
   void write_time();
 
  protected:
+  //
+  // Internal state machine, used to split all the actions into
+  // small steps in loop() to make sure we are not blocking execution
+  //
+  enum class State : uint8_t {
+    INIT,
+    IDLE,
+    INIT_OSC_START,
+    INIT_OSC_START_WAIT,
+    INIT_SET_VBATEN,
+    WRITE_OSC_START,
+    WRITE_OSC_START_WAIT,
+    WRITE_OSC_STOP,
+    WRITE_OSC_STOP_WAIT,
+    WRITE_TIME
+  } state_ = State::INIT;
+
   bool read_rtc_();
   bool write_rtc_();
   union MCP7940NReg {
     struct {
-      // Seconds register 
+      // Seconds register
       uint8_t second : 4;
       uint8_t second_10 : 3;
       bool st : 1;
@@ -93,8 +111,8 @@ class MCP7940NComponent : public time::RealTimeClock, public i2c::I2CDevice {
 
       // Weekdays Alarm register
       uint8_t weekday_alarm0 : 3;
-      bool alarm0_int: 1;
-      uint8_t alarm0_msk: 3;
+      bool alarm0_int : 1;
+      uint8_t alarm0_msk : 3;
       bool alarm0_int_pol : 1;
 
       // Date Alarm register
@@ -128,8 +146,8 @@ class MCP7940NComponent : public time::RealTimeClock, public i2c::I2CDevice {
 
       // Weekdays Alarm register
       uint8_t weekday_alarm1 : 3;
-      bool alarm1_int: 1;
-      uint8_t alarm1_msk: 3;
+      bool alarm1_int : 1;
+      uint8_t alarm1_msk : 3;
       bool alarm1_int_pol : 1;
 
       // Date Alarm register
