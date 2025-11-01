@@ -26,7 +26,13 @@ void MCP7940NComponent::loop() {
       break;
 
     case State::IDLE:
-      // Nothing to do
+      if (this->request_read_time_) {
+        this->request_read_time_ = false;
+        this->state_ = State::READ_TIME;
+      } else if (this->request_write_time_) {
+        this->request_write_time_ = false;
+        this->state_ = State::WRITE_OSC_STOP;
+      }
       break;
 
     case State::INIT_OSC_START:
@@ -127,6 +133,36 @@ void MCP7940NComponent::loop() {
       break;
     }
 
+    case State::READ_TIME: {
+      if (!this->read_rtc_()) {
+        break;
+      }
+      if (!mcp7940n_.reg.oscrun) {
+        ESP_LOGW(TAG, "RTC oscillator is not running, not syncing to system clock.");
+        break;
+      }
+      ESPTime rtc_time{
+          .second = uint8_t(mcp7940n_.reg.second + 10 * mcp7940n_.reg.second_10),
+          .minute = uint8_t(mcp7940n_.reg.minute + 10u * mcp7940n_.reg.minute_10),
+          .hour = uint8_t(mcp7940n_.reg.hour + 10u * mcp7940n_.reg.hour_10),
+          .day_of_week = uint8_t(mcp7940n_.reg.weekday),
+          .day_of_month = uint8_t(mcp7940n_.reg.date + 10u * mcp7940n_.reg.date_10),
+          .day_of_year = 1,  // ignored by recalc_timestamp_utc(false)
+          .month = uint8_t(mcp7940n_.reg.month + 10u * mcp7940n_.reg.month_10),
+          .year = uint16_t(mcp7940n_.reg.year + 10u * mcp7940n_.reg.year_10 + 2000),
+          .is_dst = false,  // not used
+          .timestamp = 0    // overwritten by recalc_timestamp_utc(false)
+      };
+      rtc_time.recalc_timestamp_utc(false);
+      if (!rtc_time.is_valid()) {
+        ESP_LOGE(TAG, "Invalid RTC time, not syncing to system clock.");
+        break;
+      }
+      time::RealTimeClock::synchronize_epoch_(rtc_time.timestamp);
+      this->state_ = State::IDLE;
+      break;
+    }
+
     default:
       ESP_LOGE(TAG, "Unhandled state: %d", static_cast<int>(this->state_));
       break;
@@ -144,42 +180,10 @@ void MCP7940NComponent::dump_config() {
 
 float MCP7940NComponent::get_setup_priority() const { return setup_priority::DATA; }
 
-void MCP7940NComponent::read_time() {
-  if (this->state_ != State::IDLE) {
-    return;
-  }
-  if (!this->read_rtc_()) {
-    return;
-  }
-  if (!mcp7940n_.reg.oscrun) {
-    ESP_LOGW(TAG, "RTC oscillator is not running, not syncing to system clock.");
-    return;
-  }
-  ESPTime rtc_time{
-      .second = uint8_t(mcp7940n_.reg.second + 10 * mcp7940n_.reg.second_10),
-      .minute = uint8_t(mcp7940n_.reg.minute + 10u * mcp7940n_.reg.minute_10),
-      .hour = uint8_t(mcp7940n_.reg.hour + 10u * mcp7940n_.reg.hour_10),
-      .day_of_week = uint8_t(mcp7940n_.reg.weekday),
-      .day_of_month = uint8_t(mcp7940n_.reg.date + 10u * mcp7940n_.reg.date_10),
-      .day_of_year = 1,  // ignored by recalc_timestamp_utc(false)
-      .month = uint8_t(mcp7940n_.reg.month + 10u * mcp7940n_.reg.month_10),
-      .year = uint16_t(mcp7940n_.reg.year + 10u * mcp7940n_.reg.year_10 + 2000),
-      .is_dst = false,  // not used
-      .timestamp = 0    // overwritten by recalc_timestamp_utc(false)
-  };
-  rtc_time.recalc_timestamp_utc(false);
-  if (!rtc_time.is_valid()) {
-    ESP_LOGE(TAG, "Invalid RTC time, not syncing to system clock.");
-    return;
-  }
-  time::RealTimeClock::synchronize_epoch_(rtc_time.timestamp);
-}
+void MCP7940NComponent::read_time() { this->request_read_time_ = true; }
 
 void MCP7940NComponent::write_time() {
-  if (this->state_ != State::IDLE) {
-    return;
-  }
-  this->state_ = State::WRITE_OSC_STOP;
+  this->request_write_time_ = true;
 }
 
 bool MCP7940NComponent::read_rtc_() {

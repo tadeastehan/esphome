@@ -32,9 +32,12 @@ class MCP7940NComponent : public time::RealTimeClock, public i2c::I2CDevice {
     WRITE_OSC_START_WAIT,
     WRITE_OSC_STOP,
     WRITE_OSC_STOP_WAIT,
-    WRITE_TIME
+    WRITE_TIME,
+    READ_TIME,
   } state_ = State::INIT;
 
+  bool request_read_time_ = false;
+  bool request_write_time_ = false;
   bool read_rtc_();
   bool write_rtc_();
   union MCP7940NReg {
