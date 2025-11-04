@@ -10,164 +10,18 @@ namespace mcp7940n {
 static const char *const TAG = "mcp7940n";
 
 void MCP7940NComponent::setup() {
-  if (!this->read_rtc_()) {
+  if (!this->set_register_bit(MCP7940_RTCSEC, MCP7940_ST)) {
     this->mark_failed();
+    return;
   }
 
-  this->state_ = State::INIT_OSC_START;
+  if (!this->set_register_bit(MCP7940_RTCWKDAY, MCP7940_VBATEN)) {
+    this->mark_failed();
+    return;
+  }
 }
 
 void MCP7940NComponent::update() { this->read_time(); }
-
-void MCP7940NComponent::loop() {
-  switch (this->state_) {
-    case State::INIT:
-      // Should not happen
-      break;
-
-    case State::IDLE:
-      if (this->request_read_time_) {
-        this->request_read_time_ = false;
-        this->state_ = State::READ_TIME;
-      } else if (this->request_write_time_) {
-        this->request_write_time_ = false;
-        this->state_ = State::WRITE_OSC_STOP;
-      }
-      break;
-
-    case State::INIT_OSC_START:
-      if (!mcp7940n_.reg.oscrun) {
-        mcp7940n_.reg.st = true;
-        if (this->write_rtc_()) {
-          this->state_ = State::INIT_OSC_START_WAIT;
-        }
-      } else {
-        this->state_ = State::INIT_SET_VBATEN;
-      }
-      break;
-
-    case State::INIT_OSC_START_WAIT:
-      if (this->read_rtc_() && mcp7940n_.reg.oscrun) {
-        this->state_ = State::INIT_SET_VBATEN;
-      }
-      break;
-
-    case State::INIT_SET_VBATEN:
-      if (!this->read_rtc_()) {
-        break;
-      }
-      if (!mcp7940n_.reg.vbat_en) {
-        mcp7940n_.reg.vbat_en = true;
-        if (this->write_rtc_()) {
-          this->state_ = State::IDLE;
-        }
-      } else {
-        this->state_ = State::IDLE;
-      }
-      break;
-
-    case State::WRITE_OSC_START:
-      if (!this->read_rtc_()) {
-        break;
-      }
-      if (mcp7940n_.reg.oscrun) {
-        this->state_ = State::IDLE;
-      } else {
-        mcp7940n_.reg.st = true;
-        if (this->write_rtc_()) {
-          this->state_ = State::WRITE_OSC_START_WAIT;
-        }
-      }
-      break;
-
-    case State::WRITE_OSC_START_WAIT:
-      if (this->read_rtc_() && mcp7940n_.reg.oscrun) {
-        this->state_ = State::IDLE;
-      }
-      break;
-
-    case State::WRITE_OSC_STOP:
-      if (!this->read_rtc_()) {
-        break;
-      }
-      if (!mcp7940n_.reg.oscrun) {
-        this->state_ = State::WRITE_TIME;
-      } else {
-        mcp7940n_.reg.st = false;
-        if (this->write_rtc_()) {
-          this->state_ = State::WRITE_OSC_STOP_WAIT;
-        }
-      }
-      break;
-
-    case State::WRITE_OSC_STOP_WAIT:
-      if (this->read_rtc_() && !mcp7940n_.reg.oscrun) {
-        this->state_ = State::WRITE_TIME;
-      }
-      break;
-
-    case State::WRITE_TIME: {
-      auto now = time::RealTimeClock::utcnow();
-      if (!now.is_valid()) {
-        ESP_LOGE(TAG, "Invalid system time, not syncing to RTC.");
-        break;
-      }
-      mcp7940n_.reg.year = (now.year - 2000) % 10;
-      mcp7940n_.reg.year_10 = (now.year - 2000) / 10 % 10;
-      mcp7940n_.reg.month = now.month % 10;
-      mcp7940n_.reg.month_10 = now.month / 10;
-      mcp7940n_.reg.date = now.day_of_month % 10;
-      mcp7940n_.reg.date_10 = now.day_of_month / 10;
-      mcp7940n_.reg.weekday = now.day_of_week;
-      mcp7940n_.reg.hour = now.hour % 10;
-      mcp7940n_.reg.hour_10 = now.hour / 10;
-      mcp7940n_.reg.minute = now.minute % 10;
-      mcp7940n_.reg.minute_10 = now.minute / 10;
-      mcp7940n_.reg.second = now.second % 10;
-      mcp7940n_.reg.second_10 = now.second / 10;
-
-      if (this->write_rtc_()) {
-        this->state_ = State::WRITE_OSC_START;
-      }
-
-      break;
-    }
-
-    case State::READ_TIME: {
-      if (!this->read_rtc_()) {
-        break;
-      }
-      if (!mcp7940n_.reg.oscrun) {
-        ESP_LOGW(TAG, "RTC oscillator is not running, not syncing to system clock.");
-        break;
-      }
-      ESPTime rtc_time{
-          .second = uint8_t(mcp7940n_.reg.second + 10 * mcp7940n_.reg.second_10),
-          .minute = uint8_t(mcp7940n_.reg.minute + 10u * mcp7940n_.reg.minute_10),
-          .hour = uint8_t(mcp7940n_.reg.hour + 10u * mcp7940n_.reg.hour_10),
-          .day_of_week = uint8_t(mcp7940n_.reg.weekday),
-          .day_of_month = uint8_t(mcp7940n_.reg.date + 10u * mcp7940n_.reg.date_10),
-          .day_of_year = 1,  // ignored by recalc_timestamp_utc(false)
-          .month = uint8_t(mcp7940n_.reg.month + 10u * mcp7940n_.reg.month_10),
-          .year = uint16_t(mcp7940n_.reg.year + 10u * mcp7940n_.reg.year_10 + 2000),
-          .is_dst = false,  // not used
-          .timestamp = 0    // overwritten by recalc_timestamp_utc(false)
-      };
-      rtc_time.recalc_timestamp_utc(false);
-      if (!rtc_time.is_valid()) {
-        ESP_LOGE(TAG, "Invalid RTC time, not syncing to system clock.");
-        break;
-      }
-      time::RealTimeClock::synchronize_epoch_(rtc_time.timestamp);
-      this->state_ = State::IDLE;
-      break;
-    }
-
-    default:
-      ESP_LOGE(TAG, "Unhandled state: %d", static_cast<int>(this->state_));
-      break;
-  }
-}
 
 void MCP7940NComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "MCP7940N:");
@@ -180,10 +34,100 @@ void MCP7940NComponent::dump_config() {
 
 float MCP7940NComponent::get_setup_priority() const { return setup_priority::DATA; }
 
-void MCP7940NComponent::read_time() { this->request_read_time_ = true; }
+void MCP7940NComponent::read_time() {
+  if (!this->read_rtc_()) {
+    return;
+  }
+  if (!mcp7940n_.reg.oscrun) {
+    ESP_LOGW(TAG, "RTC oscillator is not running, not syncing to system clock.");
+    return;
+  }
+  ESPTime rtc_time{
+      .second = uint8_t(mcp7940n_.reg.second + 10 * mcp7940n_.reg.second_10),
+      .minute = uint8_t(mcp7940n_.reg.minute + 10u * mcp7940n_.reg.minute_10),
+      .hour = uint8_t(mcp7940n_.reg.hour + 10u * mcp7940n_.reg.hour_10),
+      .day_of_week = uint8_t(mcp7940n_.reg.weekday),
+      .day_of_month = uint8_t(mcp7940n_.reg.date + 10u * mcp7940n_.reg.date_10),
+      .day_of_year = 1,  // ignored by recalc_timestamp_utc(false)
+      .month = uint8_t(mcp7940n_.reg.month + 10u * mcp7940n_.reg.month_10),
+      .year = uint16_t(mcp7940n_.reg.year + 10u * mcp7940n_.reg.year_10 + 2000),
+      .is_dst = false,  // not used
+      .timestamp = 0    // overwritten by recalc_timestamp_utc(false)
+  };
+  rtc_time.recalc_timestamp_utc(false);
+  if (!rtc_time.is_valid()) {
+    ESP_LOGE(TAG, "Invalid RTC time, not syncing to system clock.");
+    return;
+  }
+  time::RealTimeClock::synchronize_epoch_(rtc_time.timestamp);
+}
 
 void MCP7940NComponent::write_time() {
-  this->request_write_time_ = true;
+  if (!this->clear_register_bit(MCP7940_RTCSEC, MCP7940_ST)) {
+    ESP_LOGE(TAG, "Failed to stop RTC oscillator.");
+    return;
+  }
+
+  bool success = false;
+  uint32_t end_time = millis() + 2000;
+  while (millis() < end_time) {
+    uint8_t reg;
+    this->read_byte(MCP7940_RTCWKDAY, &reg);
+    if (!(reg & (1 << MCP7940_OSCRUN))) {
+      success = true;
+      break;
+    }
+  }
+  if (!success) {
+    ESP_LOGE(TAG, "Failed to stop RTC oscillator.");
+    this->mark_failed();
+    return;
+  }
+
+  if (!this->read_rtc_()) {
+    return;
+  }
+
+  auto now = time::RealTimeClock::utcnow();
+  if (!now.is_valid()) {
+    ESP_LOGE(TAG, "Invalid system time, not syncing to RTC.");
+    return;
+  }
+
+  mcp7940n_.reg.year = (now.year - 2000) % 10;
+  mcp7940n_.reg.year_10 = (now.year - 2000) / 10 % 10;
+  mcp7940n_.reg.month = now.month % 10;
+  mcp7940n_.reg.month_10 = now.month / 10;
+  mcp7940n_.reg.date = now.day_of_month % 10;
+  mcp7940n_.reg.date_10 = now.day_of_month / 10;
+  mcp7940n_.reg.weekday = now.day_of_week;
+  mcp7940n_.reg.hour = now.hour % 10;
+  mcp7940n_.reg.hour_10 = now.hour / 10;
+  mcp7940n_.reg.minute = now.minute % 10;
+  mcp7940n_.reg.minute_10 = now.minute / 10;
+  mcp7940n_.reg.second = now.second % 10;
+  mcp7940n_.reg.second_10 = now.second / 10;
+
+  this->write_rtc_();
+
+  if (!this->set_register_bit(MCP7940_RTCSEC, MCP7940_ST)) {
+    ESP_LOGE(TAG, "Failed to start RTC oscillator.");
+    return;
+  }
+}
+
+bool MCP7940NComponent::set_register_bit(uint8_t address, uint8_t bit_position) {
+  uint8_t data;
+  this->read_byte(address, &data);
+  data |= (1 << bit_position);
+  return this->write_byte(address, data);
+}
+
+bool MCP7940NComponent::clear_register_bit(uint8_t address, uint8_t bit_position) {
+  uint8_t data;
+  this->read_byte(address, &data);
+  data &= ~(1 << bit_position);
+  return this->write_byte(address, data);
 }
 
 bool MCP7940NComponent::read_rtc_() {
@@ -191,11 +135,10 @@ bool MCP7940NComponent::read_rtc_() {
     ESP_LOGE(TAG, "Can't read I2C data.");
     return false;
   }
-  ESP_LOGD(TAG, "Read  %0u%0u:%0u%0u:%0u%0u 20%0u%0u-%0u%0u-%0u%0u  OSCRUN:%s ST:%s VBATEN:%s", mcp7940n_.reg.hour_10,
+  ESP_LOGD(TAG, "Read  %0u%0u:%0u%0u:%0u%0u 20%0u%0u-%0u%0u-%0u%0u  OSCRUN:%s VBATEN:%s", mcp7940n_.reg.hour_10,
            mcp7940n_.reg.hour, mcp7940n_.reg.minute_10, mcp7940n_.reg.minute, mcp7940n_.reg.second_10,
            mcp7940n_.reg.second, mcp7940n_.reg.year_10, mcp7940n_.reg.year, mcp7940n_.reg.month_10, mcp7940n_.reg.month,
-           mcp7940n_.reg.date_10, mcp7940n_.reg.date, ONOFF(mcp7940n_.reg.oscrun), ONOFF(mcp7940n_.reg.st),
-           ONOFF(mcp7940n_.reg.vbat_en));
+           mcp7940n_.reg.date_10, mcp7940n_.reg.date, ONOFF(mcp7940n_.reg.oscrun), ONOFF(mcp7940n_.reg.vbat_en));
 
   return true;
 }
@@ -205,11 +148,10 @@ bool MCP7940NComponent::write_rtc_() {
     ESP_LOGE(TAG, "Can't write I2C data.");
     return false;
   }
-  ESP_LOGD(TAG, "Write %0u%0u:%0u%0u:%0u%0u 20%0u%0u-%0u%0u-%0u%0u  OSCRUN:%s ST:%s VBATEN:%s", mcp7940n_.reg.hour_10,
+  ESP_LOGD(TAG, "Write %0u%0u:%0u%0u:%0u%0u 20%0u%0u-%0u%0u-%0u%0u  OSCRUN:%s VBATEN:%s", mcp7940n_.reg.hour_10,
            mcp7940n_.reg.hour, mcp7940n_.reg.minute_10, mcp7940n_.reg.minute, mcp7940n_.reg.second_10,
            mcp7940n_.reg.second, mcp7940n_.reg.year_10, mcp7940n_.reg.year, mcp7940n_.reg.month_10, mcp7940n_.reg.month,
-           mcp7940n_.reg.date_10, mcp7940n_.reg.date, ONOFF(mcp7940n_.reg.oscrun), ONOFF(mcp7940n_.reg.st),
-           ONOFF(mcp7940n_.reg.vbat_en));
+           mcp7940n_.reg.date_10, mcp7940n_.reg.date, ONOFF(mcp7940n_.reg.oscrun), ONOFF(mcp7940n_.reg.vbat_en));
   return true;
 }
 }  // namespace mcp7940n

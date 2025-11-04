@@ -1,8 +1,15 @@
 #pragma once
 
+#include "esphome/core/hal.h"
 #include "esphome/core/component.h"
 #include "esphome/components/i2c/i2c.h"
 #include "esphome/components/time/real_time_clock.h"
+
+#define MCP7940_RTCSEC 0x00    // Timekeeping, RTCSEC Register address
+#define MCP7940_RTCWKDAY 0x03  // Timekeeping, RTCWKDAY Register address
+#define MCP7940_ST 7           // MCP7940 register bits. RTCSEC reg
+#define MCP7940_OSCRUN 5       // RTCWKDAY register
+#define MCP7940_VBATEN 3       // RTCWKDAY register
 
 namespace esphome {
 namespace mcp7940n {
@@ -11,33 +18,14 @@ class MCP7940NComponent : public time::RealTimeClock, public i2c::I2CDevice {
  public:
   void setup() override;
   void update() override;
-  void loop() override;
   void dump_config() override;
   float get_setup_priority() const override;
   void read_time();
   void write_time();
 
  protected:
-  //
-  // Internal state machine, used to split all the actions into
-  // small steps in loop() to make sure we are not blocking execution
-  //
-  enum class State : uint8_t {
-    INIT,
-    IDLE,
-    INIT_OSC_START,
-    INIT_OSC_START_WAIT,
-    INIT_SET_VBATEN,
-    WRITE_OSC_START,
-    WRITE_OSC_START_WAIT,
-    WRITE_OSC_STOP,
-    WRITE_OSC_STOP_WAIT,
-    WRITE_TIME,
-    READ_TIME,
-  } state_ = State::INIT;
-
-  bool request_read_time_ = false;
-  bool request_write_time_ = false;
+  bool set_register_bit(uint8_t address, uint8_t bit_position);
+  bool clear_register_bit(uint8_t address, uint8_t bit_position);
   bool read_rtc_();
   bool write_rtc_();
   union MCP7940NReg {
