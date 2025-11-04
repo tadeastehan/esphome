@@ -67,7 +67,7 @@ class MCP7940NComponent : public time::RealTimeClock, public i2c::I2CDevice {
       // Years register
       uint8_t year : 4;
       uint8_t year_10 : 4;
-
+      /*
       // Control Register
       uint8_t sqwfs : 2;
       bool crstrim : 1;
@@ -195,7 +195,7 @@ class MCP7940NComponent : public time::RealTimeClock, public i2c::I2CDevice {
       uint8_t month_pu : 4;
       uint8_t month_pu_10 : 1;
       uint8_t weekday_pu : 3;
-
+      */
     } reg;
     mutable uint8_t raw[sizeof(reg)];
   } mcp7940n_;
